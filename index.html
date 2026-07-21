@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8" />
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  />
+
+  <title>WordleVerse</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+  <div id="app">
+
+    <!-- ================= INICIO ================= -->
+
+    <div id="screen-start" class="screen">
+
+      <div class="brand">
+        <div class="hero-tiles">
+          <div class="tile">W</div>
+          <div class="tile">O</div>
+          <div class="tile">R</div>
+          <div class="tile">D</div>
+          <div class="tile">L</div>
+          <div class="tile">E</div>
+        </div>
+        <h1>WORDLE VERSE</h1>
+        <p class="tagline">Duelo de palabras en tiempo real</p>
+      </div>
+
+      <div class="card">
+
+        <div class="field-group">
+          <input
+            type="text"
+            id="player-name"
+            placeholder="Tu nombre"
+            maxlength="15"
+          />
+        </div>
+
+        <div class="start-actions">
+          <button onclick="goToCreate()">
+            🎮 Crear Partida
+          </button>
+
+          <button class="secondary" onclick="goToPublicRooms()">
+            🔎 Salas Públicas
+          </button>
+
+          <button class="link-btn" onclick="goToJoinByCode()">
+            ¿Ya tienes un código? Unirse
+          </button>
+        </div>
+
+        <p id="error-msg-start" class="error"></p>
+
+      </div>
+
+    </div>
+
+    <!-- ================= CREAR PARTIDA ================= -->
+
+    <div id="screen-create" class="screen hidden">
+
+      <div class="card">
+        <div class="form-title">🎮 Crear Partida</div>
+
+        <div class="form-field">
+          <label>Nombre de la partida</label>
+          <input type="text" id="create-room-name" placeholder="Ej: Reto de amigos" maxlength="30" />
+        </div>
+
+        <div class="form-field">
+          <label>Tema</label>
+          <select id="create-theme" onchange="selectedTheme = this.value"></select>
+        </div>
+
+        <div class="form-field">
+          <label>Dificultad</label>
+          <div id="create-difficulty" class="pill-group"></div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-field">
+            <label>Número de rondas</label>
+            <input type="number" id="create-rounds" min="3" max="15" value="5" />
+          </div>
+
+          <div class="form-field">
+            <label>Tiempo por ronda</label>
+            <select id="create-time"></select>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label>Modo de juego</label>
+          <div id="create-mode" class="mode-grid"></div>
+        </div>
+
+        <div class="form-field">
+          <label>Visibilidad</label>
+          <button type="button" id="visibility-toggle" class="visibility-switch is-public" onclick="toggleVisibility()">
+            <span class="visibility-knob"></span>
+          </button>
+          <p id="visibility-label" class="field-hint">🌍 Pública — cualquiera la verá en la lista de salas</p>
+        </div>
+
+        <div class="form-field">
+          <label>Contraseña (opcional)</label>
+          <input type="text" id="create-password" placeholder="Déjalo vacío para no usar contraseña" maxlength="20" />
+        </div>
+
+        <button onclick="createRoom()">Crear y Jugar</button>
+        <button class="secondary" onclick="backToStartFromCreate()">← Volver</button>
+      </div>
+
+    </div>
+
+    <!-- ================= SALAS PÚBLICAS ================= -->
+
+    <div id="screen-public-rooms" class="screen hidden">
+
+      <div class="form-title">🔎 Salas Públicas</div>
+
+      <div id="public-rooms-list" class="room-list"></div>
+
+      <p id="public-rooms-empty" class="field-hint hidden">
+        No hay salas públicas abiertas ahora mismo. ¡Crea la primera!
+      </p>
+
+      <button class="secondary" onclick="backToStart()">← Volver</button>
+
+    </div>
+
+    <!-- ================= UNIRSE POR CÓDIGO ================= -->
+
+    <div id="screen-join-code" class="screen hidden">
+
+      <div class="card">
+        <div class="form-title">Unirse a una sala</div>
+
+        <div class="form-field">
+          <label>Código de la sala</label>
+          <input
+            type="text"
+            id="room-code"
+            placeholder="CÓDIGO"
+            maxlength="4"
+            style="text-transform: uppercase;"
+          />
+        </div>
+
+        <div class="form-field" id="join-password-field">
+          <label>Contraseña</label>
+          <input type="text" id="join-password" placeholder="Contraseña de la sala" maxlength="20" />
+        </div>
+
+        <button onclick="joinRoom()">Unirse</button>
+        <button class="secondary" onclick="backToStart()">← Volver</button>
+
+        <p id="error-msg-join" class="error"></p>
+      </div>
+
+    </div>
+
+    <!-- ================= LOBBY ================= -->
+
+    <div id="screen-lobby" class="screen hidden">
+
+      <div class="room-header">
+        <span class="room-label">Sala</span>
+        <div id="room-code-display" class="code-tiles"></div>
+        <button class="copy-code-btn" onclick="copyRoomCode()">Copiar código</button>
+      </div>
+
+      <div id="lobby-badges" class="room-card-badges lobby-badges"></div>
+
+      <div class="card">
+        <div class="section-label">Jugadores</div>
+
+        <ul id="players-list"></ul>
+
+        <button
+          id="start-btn"
+          class="hidden"
+          onclick="startGame()"
+        >
+          Iniciar Partida
+        </button>
+
+        <p id="lobby-status">
+          Esperando al host...
+        </p>
+      </div>
+
+    </div>
+
+    <!-- ================= JUEGO ================= -->
+
+    <div id="screen-game" class="screen hidden">
+
+      <div class="header">
+
+        <div id="round-info">
+          Ronda 1 de 5
+        </div>
+
+        <div id="scores-container"></div>
+
+      </div>
+
+      <div
+        id="game-board"
+        class="board"
+      ></div>
+
+      <div class="keyboard">
+
+        <input
+          type="text"
+          id="guess-input"
+          maxlength="5"
+          placeholder="Escribe tu palabra"
+          style="text-transform: uppercase;"
+        />
+
+        <button onclick="submitGuess()">
+          Enviar
+        </button>
+
+      </div>
+
+      <p id="error-msg-game" class="error"></p>
+
+    </div>
+
+    <!-- ================= RESULTADO DE RONDA ================= -->
+
+    <div
+      id="screen-round-result"
+      class="screen hidden"
+    >
+
+      <div class="card">
+        <h2 id="round-winner-text"></h2>
+
+        <p>
+          Palabra correcta:
+          <strong id="correct-word"></strong>
+        </p>
+
+        <div id="round-scores"></div>
+
+        <p id="next-round-timer">
+          Esperando al host para continuar...
+        </p>
+
+        <button
+          id="next-round-btn"
+          class="hidden"
+          onclick="nextRound()"
+        >
+          Siguiente ronda
+        </button>
+      </div>
+
+    </div>
+
+    <!-- ================= FINAL ================= -->
+
+    <div
+      id="screen-final"
+      class="screen hidden"
+    >
+
+      <div class="card">
+        <h2>Resultado Final</h2>
+
+        <div id="final-ranking"></div>
+
+        <button onclick="restartGame()">
+          Jugar de Nuevo
+        </button>
+
+        <button class="secondary" onclick="goToStart()">
+          Salir
+        </button>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- ================= APP ================= -->
+
+  <script
+    type="module"
+    src="./app.js"
+  ></script>
+
+</body>
+
+</html>
