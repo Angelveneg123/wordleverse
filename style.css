@@ -824,3 +824,44 @@ select:focus { border-color: var(--accent-2); }
   .pill-group { flex-wrap: wrap; }
   .pill-btn { min-width: 40%; }
 }
+
+/* ============================================================
+   Salir de la sala + contraseña visible solo para el anfitrión
+   ============================================================ */
+
+.room-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.leave-btn {
+  background: transparent;
+  color: var(--danger);
+  box-shadow: none;
+  font-size: 0.8rem;
+  padding: 6px 10px;
+  border: 1px solid var(--danger);
+  border-radius: 20px;
+}
+
+.leave-btn:hover { filter: brightness(1.15); }
+.leave-btn:active { transform: none; }
+
+.game-topbar {
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.chip-password {
+  cursor: pointer;
+  border: none;
+  font-family: var(--font-mono);
+  color: var(--accent);
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+}
+
+.chip-password:active { transform: none; }

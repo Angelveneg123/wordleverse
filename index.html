@@ -9,14 +9,13 @@
     content="width=device-width, initial-scale=1.0"
   />
 
-  <title>WordleVerse</title>
+  <title>Wordle Online</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
-
-  <link rel="stylesheet" href="style.css" />
   <link rel="icon" href="wordleverse.png" type="image/png">
+  <link rel="stylesheet" href="style.css" />
 </head>
 
 <body>
@@ -36,7 +35,7 @@
           <div class="tile">L</div>
           <div class="tile">E</div>
         </div>
-        <h1>WORDLE VERSE</h1>
+        <h1>WORDLE ONLINE</h1>
         <p class="tagline">Duelo de palabras en tiempo real</p>
       </div>
 
@@ -183,7 +182,10 @@
       <div class="room-header">
         <span class="room-label">Sala</span>
         <div id="room-code-display" class="code-tiles"></div>
-        <button class="copy-code-btn" onclick="copyRoomCode()">Copiar código</button>
+        <div class="room-header-actions">
+          <button class="copy-code-btn" onclick="copyRoomCode()">Copiar código</button>
+          <button class="leave-btn" onclick="leaveRoom()">🚪 Salir</button>
+        </div>
       </div>
 
       <div id="lobby-badges" class="room-card-badges lobby-badges"></div>
@@ -211,6 +213,10 @@
     <!-- ================= JUEGO ================= -->
 
     <div id="screen-game" class="screen hidden">
+
+      <div class="game-topbar">
+        <button class="leave-btn" onclick="leaveRoom()">🚪 Salir</button>
+      </div>
 
       <div class="header">
 

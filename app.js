@@ -45,9 +45,101 @@ let pendingJoinHasPassword = false;
 let publicRoomsRef = null;
 let publicRoomsCallback = null;
 
+// Listener de la sala activa (para poder desconectarlo al salir)
+let roomListenerCallback = null;
+
 // Controla que el tablero solo se reinicie cuando cambia la ronda
 let lastRoundLoaded = null;
 let lastWordLoaded = null;
+
+// ==================== SESIÓN (reconexión) ====================
+
+const SESSION_KEY = "wordleSession";
+
+function saveSession() {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      roomCode: currentRoomCode,
+      playerId: currentPlayerId,
+      playerName: currentPlayerName
+    }));
+  } catch (e) { /* localStorage no disponible, seguimos sin persistencia */ }
+}
+
+function loadSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function clearSession() {
+  try {
+    localStorage.removeItem(SESSION_KEY);
+  } catch (e) { /* nada que limpiar */ }
+}
+
+function resetLocalState() {
+  currentRoomCode = null;
+  currentPlayerId = null;
+  isHost = false;
+  currentWord = "";
+  currentWordLength = 5;
+  roomRef = null;
+  lastRoundLoaded = null;
+  lastWordLoaded = null;
+  board = [];
+  currentRow = 0;
+}
+
+// Al cargar la página, si había una sesión guardada intentamos volver
+// directo a la sala donde estábamos (lobby, ronda en curso, resultado o final).
+async function attemptReconnect() {
+  const session = loadSession();
+  if (!session || !session.roomCode || !session.playerId) return false;
+
+  currentRoomCode = session.roomCode;
+  currentPlayerId = session.playerId;
+  currentPlayerName = session.playerName;
+
+  roomRef = ref(db, "rooms/" + currentRoomCode);
+
+  let room = null;
+  try {
+    const snapshot = await get(roomRef);
+    room = snapshot.val();
+  } catch (e) {
+    room = null;
+  }
+
+  if (!room || !room.players || !room.players[currentPlayerId]) {
+    clearSession();
+    resetLocalState();
+    return false;
+  }
+
+  const nameInput = document.getElementById("player-name");
+  if (nameInput) nameInput.value = currentPlayerName || "";
+
+  isHost = !!room.players[currentPlayerId].isHost;
+
+  if (room.status === "playing" && room.roundStatus === "playing") {
+    lastRoundLoaded = room.currentRound;
+    lastWordLoaded = room.currentWord;
+    startGameClient(room);
+  } else if (room.roundStatus === "finished" && room.status !== "gameOver") {
+    showRoundResult(room);
+  } else if (room.status === "gameOver") {
+    showFinalScreen(room);
+  } else {
+    showLobby(room);
+  }
+
+  listenToRoomChanges();
+  return true;
+}
 
 // ==================== UTILIDADES ====================
 
@@ -299,12 +391,15 @@ async function createRoom() {
     name: currentPlayerName,
     score: 0,
     attempts: [],
-    isHost: true
+    isHost: true,
+    joinedAt: Date.now()
   };
 
   await set(roomRef, roomData);
 
   isHost = true;
+
+  saveSession();
 
   showLobby(roomData);
 
@@ -312,6 +407,30 @@ async function createRoom() {
 }
 
 // ==================== SALAS PÚBLICAS ====================
+
+// Una sala "waiting" que lleva muchas horas sin arrancar quedó abandonada
+// (el anfitrión la creó y nunca volvió). Cualquier cliente que abra la
+// lista de salas públicas la borra silenciosamente para todos.
+const STALE_WAITING_MS = 6 * 60 * 60 * 1000;   // 6 horas sin iniciar
+const STALE_ANY_MS = 48 * 60 * 60 * 1000;      // 48 horas en cualquier estado (partidas colgadas)
+
+function isStaleRoom(room) {
+  if (!room || !room.createdAt) return false;
+
+  const age = Date.now() - room.createdAt;
+
+  if (room.status === "waiting" && age > STALE_WAITING_MS) return true;
+  if (age > STALE_ANY_MS) return true;
+
+  return false;
+}
+
+function cleanupStaleRoom(room) {
+  set(ref(db, "rooms/" + room.roomCode), null).catch(() => {
+    // Si falla (p. ej. reglas de Firebase), simplemente lo intentará
+    // otro cliente la próxima vez que abra la lista.
+  });
+}
 
 function startBrowsingPublicRooms() {
   stopBrowsingPublicRooms();
@@ -321,9 +440,18 @@ function startBrowsingPublicRooms() {
   publicRoomsCallback = snapshot => {
     const all = snapshot.val() || {};
 
-    const rooms = Object.values(all)
-      .filter(room => room.status === "waiting")
-      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const rooms = [];
+
+    Object.values(all).forEach(room => {
+      if (isStaleRoom(room)) {
+        cleanupStaleRoom(room);
+        return;
+      }
+
+      if (room.status === "waiting") rooms.push(room);
+    });
+
+    rooms.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
     renderPublicRooms(rooms);
   };
@@ -460,7 +588,8 @@ async function joinRoom() {
     name: currentPlayerName,
     score: 0,
     attempts: [],
-    isHost: false
+    isHost: false,
+    joinedAt: Date.now()
   };
 
   await set(
@@ -479,6 +608,8 @@ async function joinRoom() {
   });
 
   isHost = false;
+
+  saveSession();
 
   stopBrowsingPublicRooms();
 
@@ -515,6 +646,13 @@ function renderLobbyBadges(room) {
   const diffMeta = DIFFICULTIES[room.difficulty] || DIFFICULTIES.normal;
   const modeMeta = MODES[room.mode] || MODES.clasico;
 
+  let passwordChip = "";
+  if (room.password) {
+    passwordChip = isHost
+      ? '<button type="button" id="lobby-password-toggle" class="chip chip-password">🔑 ••••••</button>'
+      : '<span class="chip">🔒 Con contraseña</span>';
+  }
+
   container.innerHTML = `
     <span class="chip">${themeMeta.icon} ${themeMeta.label}</span>
     <span class="chip">${diffMeta.icon} ${diffMeta.label}</span>
@@ -522,8 +660,18 @@ function renderLobbyBadges(room) {
     <span class="chip">🔁 ${room.totalRounds} rondas</span>
     <span class="chip">${room.timePerRound ? "⏱ " + room.timePerRound + "s" : "⏱ Sin límite"}</span>
     <span class="chip">${room.isPublic ? "🌍 Pública" : "🔒 Privada"}</span>
-    ${room.password ? '<span class="chip">🔑 Con contraseña</span>' : ""}
+    ${passwordChip}
   `;
+
+  // Solo el host puede revelar la contraseña real (los demás ya la escribieron para entrar)
+  if (isHost && room.password) {
+    const toggleBtn = document.getElementById("lobby-password-toggle");
+    let revealed = false;
+    toggleBtn.onclick = () => {
+      revealed = !revealed;
+      toggleBtn.textContent = revealed ? `🔑 ${room.password}` : "🔑 ••••••";
+    };
+  }
 }
 
 function copyRoomCode() {
@@ -545,11 +693,26 @@ function copyRoomCode() {
 
 function listenToRoomChanges() {
 
-  onValue(roomRef, snapshot => {
+  stopRoomListener();
+
+  roomListenerCallback = snapshot => {
 
     const room = snapshot.val();
 
-    if (!room) return;
+    if (!room) {
+      // La sala ya no existe (por ejemplo, el host se fue y no quedaba nadie)
+      stopRoomListener();
+      clearSession();
+      resetLocalState();
+      showScreen("screen-start");
+      return;
+    }
+
+    // Mantenemos isHost sincronizado con Firebase: si el host se va,
+    // otro jugador puede pasar a ser host sin recargar la página.
+    if (room.players && room.players[currentPlayerId]) {
+      isHost = !!room.players[currentPlayerId].isHost;
+    }
 
     renderPlayers(room.players);
     updateScores(room.players);
@@ -581,7 +744,67 @@ function listenToRoomChanges() {
     if (room.status === "gameOver") {
       showFinalScreen(room);
     }
-  });
+  };
+
+  onValue(roomRef, roomListenerCallback);
+}
+
+function stopRoomListener() {
+  if (roomRef && roomListenerCallback) {
+    off(roomRef, "value", roomListenerCallback);
+  }
+  roomListenerCallback = null;
+}
+
+// ==================== SALIR DE LA SALA ====================
+
+async function leaveRoom() {
+
+  if (!currentRoomCode || !currentPlayerId) {
+    clearSession();
+    showScreen("screen-start");
+    return;
+  }
+
+  try {
+    const snapshot = await get(roomRef);
+    const room = snapshot.val();
+
+    if (room) {
+      const players = { ...(room.players || {}) };
+      delete players[currentPlayerId];
+
+      const remaining = Object.values(players);
+
+      if (remaining.length === 0) {
+        // No queda nadie en la sala: la eliminamos
+        await set(roomRef, null);
+      } else {
+        const updates = {};
+        updates[`players/${currentPlayerId}`] = null;
+        updates.playerCount = remaining.length;
+
+        if (isHost) {
+          // Traspasamos el host al jugador más antiguo que quede
+          const nextHost = remaining.sort(
+            (a, b) => (a.joinedAt || 0) - (b.joinedAt || 0)
+          )[0];
+
+          updates[`players/${nextHost.id}/isHost`] = true;
+          updates.hostId = nextHost.id;
+        }
+
+        await update(roomRef, updates);
+      }
+    }
+  } catch (e) {
+    // Si falla la limpieza remota igual dejamos la sala localmente
+  }
+
+  stopRoomListener();
+  clearSession();
+  resetLocalState();
+  showScreen("screen-start");
 }
 
 function renderPlayers(players) {
@@ -687,6 +910,17 @@ function startGameClient(room) {
   updateScores(room.players);
 
   updateRoundInfo(room);
+
+  // Reconexión: si ya habíamos jugado intentos en esta ronda, los repintamos
+  const me = room.players && room.players[currentPlayerId];
+  if (me && me.attempts) {
+    const attempts = Object.values(me.attempts)
+      .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+    attempts.forEach(attempt => {
+      showAttemptInBoard(attempt.word, attempt.result);
+    });
+  }
 }
 
 // ==================== SCORE ====================
@@ -1047,10 +1281,12 @@ function showFinalScreen(room) {
 // ==================== REINICIAR ====================
 
 function restartGame() {
+  clearSession();
   location.reload();
 }
 
 function goToStart() {
+  clearSession();
   location.reload();
 }
 
@@ -1061,6 +1297,7 @@ document.addEventListener(
   () => {
 
     populateCreateForm();
+    attemptReconnect();
 
     window.addEventListener("resize", handleBoardResize);
     window.addEventListener("orientationchange", handleBoardResize);
@@ -1095,6 +1332,7 @@ window.nextRound = nextRound;
 window.restartGame = restartGame;
 window.goToStart = goToStart;
 window.copyRoomCode = copyRoomCode;
+window.leaveRoom = leaveRoom;
 
 window.goToCreate = goToCreate;
 window.goToPublicRooms = goToPublicRooms;
