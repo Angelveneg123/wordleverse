@@ -20,8 +20,8 @@ export const DIFFICULTIES = {
 
 export const MODES = {
   clasico: { label: "Clásico", description: "Adivina la palabra. Como el Wordle de siempre.", enabled: true },
-  contrarreloj: { label: "Contrarreloj", description: "60 segundos. La mayor cantidad de aciertos posible.", enabled: false },
-  eliminacion: { label: "Eliminación", description: "Si fallas la ronda, quedas eliminado. Al estilo Fall Guys.", enabled: false },
+  contrarreloj: { label: "Contrarreloj", description: "Cada ronda tiene un límite de tiempo. Si se acaba, se revela la palabra.", enabled: true },
+  eliminacion: { label: "Eliminación", description: "Si no ganas la ronda, quedas eliminado. Al estilo Fall Guys.", enabled: true },
   supervivencia: { label: "Supervivencia", description: "No puedes fallar ninguna palabra.", enabled: false },
   todos_contra_todos: { label: "Todos contra todos", description: "Gana quien acierte primero.", enabled: false },
   cooperativo: { label: "Cooperativo", description: "Todos los jugadores se ayudan entre sí.", enabled: false },
@@ -57,7 +57,7 @@ const THEME_WORDS = {
     10: ["COMENTARIO", "COMPARTIDO", "INFLUENCER", "PLATAFORMA", "REACCIONES", "SEGUIDORES", "TENDENCIAS"],
   },
   animales: {
-    5: ["ABEJA", "ARAÑA", "CABRA", "CEBRA", "CERDO", "ERIZO", "GALLO", "KOALA", "OVEJA", "PANDA", "PERRO", "PULPO", "RATON", "TIGRE", "ZORRO"],
+    5: ["ABEJA", "ARANA", "CABRA", "CEBRA", "CERDO", "ERIZO", "GALLO", "KOALA", "OVEJA", "PANDA", "PERRO", "PULPO", "RATON", "TIGRE", "ZORRO"],
     6: ["AGUILA", "CONEJO", "CUERVO", "DELFIN", "GORILA", "HALCON", "IGUANA", "JIRAFA", "PALOMA"],
     7: ["ARDILLA", "BALLENA", "CABALLO", "CANGURO", "COLIBRI", "GALLINA", "HORMIGA", "LAGARTO", "TIBURON", "TORTUGA"],
     8: ["CAMALEON", "CANGREJO", "ELEFANTE", "MARIPOSA", "PINGUINO", "ZORRILLO"],

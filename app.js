@@ -52,6 +52,30 @@ let roomListenerCallback = null;
 let lastRoundLoaded = null;
 let lastWordLoaded = null;
 
+// Última foto conocida de la sala (para el ticker de tiempo) y control
+// de que solo un timeout se procese a la vez
+let latestRoomSnapshot = null;
+let timeoutHandling = false;
+let gameTickInterval = null;
+
+// Modos que necesitan un límite de tiempo por ronda
+const TIMED_MODES = ["contrarreloj", "eliminacion"];
+const DEFAULT_ROUND_SECONDS = 45;
+
+function needsTimer(mode) {
+  return TIMED_MODES.includes(mode);
+}
+
+function getEffectiveSeconds(room) {
+  if (!needsTimer(room.mode)) return 0;
+  return room.timePerRound > 0 ? room.timePerRound : DEFAULT_ROUND_SECONDS;
+}
+
+function computeRoundDeadline(room) {
+  const seconds = getEffectiveSeconds(room);
+  return seconds > 0 ? Date.now() + seconds * 1000 : null;
+}
+
 // ==================== SESIÓN (reconexión) ====================
 
 const SESSION_KEY = "wordleSession";
@@ -324,6 +348,16 @@ function selectMode(key) {
     const cardKey = Object.keys(MODES)[index];
     card.classList.toggle("active", cardKey === key);
   });
+
+  const hint = document.getElementById("time-mode-hint");
+  if (hint) {
+    if (TIMED_MODES.includes(key)) {
+      hint.textContent = `⏱ Este modo necesita un límite de tiempo. Si eliges "Sin límite" usaremos ${DEFAULT_ROUND_SECONDS}s por defecto.`;
+      hint.classList.remove("hidden");
+    } else {
+      hint.classList.add("hidden");
+    }
+  }
 }
 
 function toggleVisibility() {
@@ -391,6 +425,7 @@ async function createRoom() {
     name: currentPlayerName,
     score: 0,
     attempts: [],
+    eliminated: false,
     isHost: true,
     joinedAt: Date.now()
   };
@@ -588,6 +623,7 @@ async function joinRoom() {
     name: currentPlayerName,
     score: 0,
     attempts: [],
+    eliminated: false,
     isHost: false,
     joinedAt: Date.now()
   };
@@ -708,6 +744,9 @@ function listenToRoomChanges() {
       return;
     }
 
+    latestRoomSnapshot = room;
+    startGameTicker();
+
     // Mantenemos isHost sincronizado con Firebase: si el host se va,
     // otro jugador puede pasar a ser host sin recargar la página.
     if (room.players && room.players[currentPlayerId]) {
@@ -717,6 +756,7 @@ function listenToRoomChanges() {
     renderPlayers(room.players);
     updateScores(room.players);
     renderLobbyBadges(room);
+    updateSpectatorState(room);
 
     if (
       room.status === "playing" &&
@@ -754,6 +794,76 @@ function stopRoomListener() {
     off(roomRef, "value", roomListenerCallback);
   }
   roomListenerCallback = null;
+}
+
+// ==================== TICKER DE TIEMPO (Contrarreloj / Eliminación) ====================
+
+function startGameTicker() {
+  if (gameTickInterval) return;
+  gameTickInterval = setInterval(gameTick, 1000);
+}
+
+function gameTick() {
+  const room = latestRoomSnapshot;
+  if (!room) return;
+
+  updateRoundTimerDisplay(room);
+
+  // Solo quien es host en este momento fuerza el fin de ronda por tiempo.
+  // Como isHost se sincroniza en vivo con Firebase, si el host se va y el
+  // rol pasa a otro jugador, ese jugador retoma el control automáticamente.
+  if (!isHost) return;
+  if (room.status !== "playing" || room.roundStatus !== "playing") return;
+  if (!needsTimer(room.mode) || !room.roundDeadline) return;
+  if (Date.now() < room.roundDeadline) return;
+
+  handleRoundTimeout();
+}
+
+function updateRoundTimerDisplay(room) {
+  const el = document.getElementById("round-timer");
+  if (!el) return;
+
+  const gameScreen = document.getElementById("screen-game");
+  const showTimer =
+    gameScreen && !gameScreen.classList.contains("hidden") &&
+    room.status === "playing" && room.roundStatus === "playing" &&
+    needsTimer(room.mode) && room.roundDeadline;
+
+  if (!showTimer) {
+    el.classList.add("hidden");
+    return;
+  }
+
+  const secondsLeft = Math.max(0, Math.ceil((room.roundDeadline - Date.now()) / 1000));
+  el.classList.remove("hidden");
+  el.textContent = `⏱ ${secondsLeft}s`;
+  el.classList.toggle("round-timer-urgent", secondsLeft <= 10);
+}
+
+async function handleRoundTimeout() {
+  if (timeoutHandling) return;
+  timeoutHandling = true;
+
+  try {
+    const snapshot = await get(roomRef);
+    const room = snapshot.val();
+
+    // Puede que alguien haya ganado justo antes de que corriéramos esto
+    if (!room || room.roundStatus !== "playing") return;
+    if (!needsTimer(room.mode) || !room.roundDeadline) return;
+    if (Date.now() < room.roundDeadline) return;
+
+    // Nadie acertó a tiempo: se revela la palabra y no se elimina a nadie
+    // (red de seguridad para no vaciar la sala por mala suerte de todos).
+    await update(roomRef, {
+      roundStatus: "finished",
+      roundWinner: null
+    });
+
+  } finally {
+    timeoutHandling = false;
+  }
 }
 
 // ==================== SALIR DE LA SALA ====================
@@ -868,30 +978,36 @@ async function startGame() {
 
   const { word: firstWord, length } = getWordForRoom(room.theme, room.difficulty);
 
-  await update(roomRef, {
+  const startUpdates = {
     status: "playing",
     currentRound: 1,
     currentWord: firstWord,
     currentWordLength: length,
     roundWinner: null,
-    roundStatus: "playing"
-  });
+    roundStatus: "playing",
+    roundDeadline: computeRoundDeadline(room)
+  };
 
   Object.keys(room.players).forEach(pid => {
-
-    update(
-      ref(
-        db,
-        "rooms/" +
-        currentRoomCode +
-        "/players/" +
-        pid
-      ),
-      {
-        attempts: []
-      }
-    );
+    startUpdates[`players/${pid}/attempts`] = [];
+    startUpdates[`players/${pid}/eliminated`] = false;
   });
+
+  await update(roomRef, startUpdates);
+}
+
+function updateSpectatorState(room) {
+  const gameScreen = document.getElementById("screen-game");
+  if (!gameScreen || gameScreen.classList.contains("hidden")) return;
+
+  const me = room.players && room.players[currentPlayerId];
+  const amIEliminated = !!(me && me.eliminated);
+
+  const spectatorBanner = document.getElementById("spectator-banner");
+  const guessBar = document.getElementById("guess-bar");
+
+  if (spectatorBanner) spectatorBanner.classList.toggle("hidden", !amIEliminated);
+  if (guessBar) guessBar.classList.toggle("hidden", amIEliminated);
 }
 
 function startGameClient(room) {
@@ -907,12 +1023,16 @@ function startGameClient(room) {
   guessInput.maxLength = currentWordLength;
   guessInput.value = "";
 
+  const me = room.players && room.players[currentPlayerId];
+
+  updateSpectatorState(room);
+
   updateScores(room.players);
 
   updateRoundInfo(room);
+  updateRoundTimerDisplay(room);
 
   // Reconexión: si ya habíamos jugado intentos en esta ronda, los repintamos
-  const me = room.players && room.players[currentPlayerId];
   if (me && me.attempts) {
     const attempts = Object.values(me.attempts)
       .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
@@ -940,10 +1060,11 @@ function updateScores(players) {
 
     const div = document.createElement("div");
 
-    div.className = "player-score";
+    div.className = "player-score" + (player.eliminated ? " eliminated" : "");
 
-    div.textContent =
-      `${player.name}: ${player.score}`;
+    div.textContent = player.eliminated
+      ? `❌ ${player.name}: ${player.score}`
+      : `${player.name}: ${player.score}`;
 
     container.appendChild(div);
   });
@@ -1044,6 +1165,11 @@ async function submitGuess() {
 
   if (room.roundStatus !== "playing") {
     return showError("La ronda ya terminó", "error-msg-game");
+  }
+
+  const me = room.players && room.players[currentPlayerId];
+  if (me && me.eliminated) {
+    return showError("Ya fuiste eliminado — ahora eres espectador", "error-msg-game");
   }
 
   const result =
@@ -1147,26 +1273,38 @@ async function finishRound() {
 
   if (room.roundStatus !== "playing") return;
 
-  await update(roomRef, {
+  const updates = {
     roundWinner: currentPlayerId,
     roundStatus: "finished"
-  });
+  };
 
-  const playerRef = ref(
-    db,
-    "rooms/" +
-    currentRoomCode +
-    "/players/" +
-    currentPlayerId
-  );
+  const players = room.players || {};
+  const winnerScore = (players[currentPlayerId]?.score || 0) + 1;
+  updates[`players/${currentPlayerId}/score`] = winnerScore;
 
-  const playerSnapshot = await get(playerRef);
+  if (room.mode === "eliminacion") {
+    // Todo el que seguía activo y no ganó esta ronda queda eliminado.
+    const stillActive = Object.values(players).filter(p => !p.eliminated);
+    const eliminatedNow = stillActive.filter(p => p.id !== currentPlayerId);
 
-  const player = playerSnapshot.val();
+    // Red de seguridad: si por alguna razón eso vaciara la sala entera,
+    // no eliminamos a nadie esta ronda (mejor que un juego sin jugadores).
+    if (eliminatedNow.length < stillActive.length) {
+      eliminatedNow.forEach(p => {
+        updates[`players/${p.id}/eliminated`] = true;
+      });
 
-  await update(playerRef, {
-    score: (player.score || 0) + 1
-  });
+      const remainingActive = stillActive.length - eliminatedNow.length;
+
+      if (remainingActive <= 1) {
+        // Ya no queda con quién competir: termina la partida aquí mismo,
+        // aunque falten rondas configuradas.
+        updates.status = "gameOver";
+      }
+    }
+  }
+
+  await update(roomRef, updates);
 }
 
 // ==================== RESULTADO ====================
@@ -1183,7 +1321,7 @@ function showRoundResult(room) {
     "round-winner-text"
   ).textContent = winner
     ? `¡${winner.name} ganó la ronda!`
-    : "Ronda terminada";
+    : (needsTimer(room.mode) ? "⏱ ¡Se acabó el tiempo! Nadie acertó" : "Ronda terminada");
 
   document.getElementById(
     "correct-word"
@@ -1239,7 +1377,8 @@ async function nextRound() {
     currentWordLength: length,
     roundWinner: null,
     roundStatus: "playing",
-    status: "playing"
+    status: "playing",
+    roundDeadline: computeRoundDeadline(room)
   };
 
   Object.keys(room.players || {}).forEach(pid => {
@@ -1271,8 +1410,10 @@ function showFinalScreen(room) {
     const el =
       document.createElement("p");
 
+    const tag = p.eliminated ? " ❌ eliminado" : "";
+
     el.textContent =
-      `${index + 1}. ${p.name} - ${p.score}`;
+      `${index + 1}. ${p.name} - ${p.score}${tag}`;
 
     ranking.appendChild(el);
   });

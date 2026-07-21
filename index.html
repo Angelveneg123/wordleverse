@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+¿<!DOCTYPE html>
 <html lang="es">
 
 <head>
@@ -14,8 +14,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
-  <link rel="icon" href="wordleverse.png" type="image/png">
+  
   <link rel="stylesheet" href="style.css" />
+   <link rel="icon" href="wordleverse.png" type="image/png">
 </head>
 
 <body>
@@ -101,6 +102,7 @@
           <div class="form-field">
             <label>Tiempo por ronda</label>
             <select id="create-time"></select>
+            <p id="time-mode-hint" class="field-hint hidden"></p>
           </div>
         </div>
 
@@ -224,6 +226,8 @@
           Ronda 1 de 5
         </div>
 
+        <div id="round-timer" class="round-timer hidden"></div>
+
         <div id="scores-container"></div>
 
       </div>
@@ -233,7 +237,11 @@
         class="board"
       ></div>
 
-      <div class="keyboard">
+      <p id="spectator-banner" class="spectator-banner hidden">
+        👀 Fuiste eliminado — ahora eres espectador. Puedes ver cómo sigue la partida.
+      </p>
+
+      <div id="guess-bar" class="keyboard">
 
         <input
           type="text"
